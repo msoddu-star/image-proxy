@@ -50,5 +50,38 @@ app.get('/image', (req, res) => {
 
   fetchImage(url);
 });
+app.get('/image64', (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: 'Parametro url mancante' });
 
+  try { new URL(url); } catch {
+    return res.status(400).json({ error: 'URL non valido' });
+  }
+
+  const fetchImage = (targetUrl, redirectCount = 0) => {
+    if (redirectCount > 5) return res.status(500).json({ error: 'Troppi redirect' });
+    const client = targetUrl.startsWith('https') ? https : http;
+    client.get(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://store.lemanicasa.com/',
+      }
+    }, (response) => {
+      if ([301, 302, 303, 307, 308].includes(response.statusCode)) {
+        const location = response.headers.location;
+        const nextUrl = location.startsWith('http') ? location : new URL(location, targetUrl).href;
+        return fetchImage(nextUrl, redirectCount + 1);
+      }
+      const contentType = response.headers['content-type'] || 'image/jpeg';
+      const chunks = [];
+      response.on('data', chunk => chunks.push(chunk));
+      response.on('end', () => {
+        const base64 = Buffer.concat(chunks).toString('base64');
+        res.json({ dataUrl: `data:${contentType};base64,${base64}` });
+      });
+    }).on('error', err => res.status(500).json({ error: err.message }));
+  };
+
+  fetchImage(url);
+});
 app.listen(PORT, () => console.log(`Image proxy avviato su porta ${PORT}`));
