@@ -84,4 +84,44 @@ app.get('/image64', (req, res) => {
 
   fetchImage(url);
 });
+app.get('/scrape-all', async (req, res) => {
+  const { urls } = req.query;
+  if (!urls) return res.status(400).json({ error: 'Parametro urls mancante' });
+
+  const urlList = urls.split(',');
+
+  const fetchB64 = (targetUrl, redirectCount = 0) => new Promise((resolve) => {
+    if (redirectCount > 5) return resolve(null);
+    const client = targetUrl.startsWith('https') ? https : http;
+    client.get(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://store.lemanicasa.com/',
+      }
+    }, (response) => {
+      if ([301,302,303,307,308].includes(response.statusCode)) {
+        const location = response.headers.location;
+        const nextUrl = location.startsWith('http') ? location : new URL(location, targetUrl).href;
+        return resolve(fetchB64(nextUrl, redirectCount + 1));
+      }
+      const contentType = response.headers['content-type'] || 'image/jpeg';
+      const chunks = [];
+      response.on('data', chunk => chunks.push(chunk));
+      response.on('end', () => {
+        const b64 = Buffer.concat(chunks).toString('base64');
+        resolve(`data:${contentType};base64,${b64}`);
+      });
+    }).on('error', () => resolve(null));
+  });
+
+  const result = {};
+  for (const url of urlList) {
+    const key = url.split('/').pop();
+    result[key] = await fetchB64(url.trim());
+  }
+
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.json(result);
+});
+
 app.listen(PORT, () => console.log(`Image proxy avviato su porta ${PORT}`));
